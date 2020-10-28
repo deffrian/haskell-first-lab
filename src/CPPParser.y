@@ -2,11 +2,15 @@
 module CPPParser where
 import CPPLexer
 import Data.Char
+import Control.Monad.Identity
+import Utils
+import Data.List.NonEmpty (NonEmpty(..))
 }
 
 %name cppParser
 %tokentype { Token }
 %error { parseError }
+%monad { Maybe } { thenE } { \x -> Just x }
 
 %token
   'int'      { TypeInt }
@@ -44,85 +48,87 @@ import Data.Char
 %%
 
 Code:
-  Func Code { Nothing }
-  | Func    { Nothing }
+  Func Code { 0 }
+  | Func    { 0 }
 Func:
-  Type name '(' DeclArgs ')' '{' Body '}' { Nothing }
+  Type name '(' DeclArgs ')' '{' Body '}' { 0 }
 DeclArgs:
-  Type name ',' DeclArgs  { Nothing }
-  | Type name         { Nothing }
-  | {- empty -}       { Nothing }
+  Type name ',' DeclArgs  { 0 }
+  | Type name             { 0 }
+  | {- empty -}           { 0 }
 Body:
-  Cycle Body      { Nothing }
-  | If Body       { Nothing }
-  | Diff ';' Body { Nothing }
-  | AnyOp ';' Body   { Nothing }
-  | {- empty -}   { Nothing }
+  Cycle Body       { 0 }
+  | If Body        { 0 }
+  | Diff ';' Body  { 0 }
+  | AnyOp ';' Body { 0 }
+  | {- empty -}    { 0 }
 Cycle:
-  'while' '(' ValOp ')' '{' Body '}'  { Nothing }
+  'while' '(' Expr ')' '{' Body '}'  { 0 }
 If:
-  'if' '(' ValOp ')' '{' Body '}'                        { Nothing }
-  | 'if' '(' ValOp ')' '{' Body '}' 'else' '{' Body '}'  { Nothing }
+  'if' '(' Expr ')' '{' Body '}'                        { 0 }
+  | 'if' '(' Expr ')' '{' Body '}' 'else' '{' Body '}'  { 0 }
 Diff:
-  Type DiffNames          { Nothing }
+  Type DiffNames          { 0 }
 DiffNames:
-  name { Nothing }
-  | name '=' ValOp { Nothing }
-  | name ',' DiffNames { Nothing }
-  | name '=' ValOp ',' DiffNames { Nothing }
+  name { 0 }
+  | name '=' Expr { 0 }
+  | name ',' DiffNames { 0 }
+  | name '=' Expr ',' DiffNames { 0 }
 AnyOp:
-  ValOp            { Nothing }
-  | 'return' ValOp { Nothing }
-ValOp:
-  name '=' ValOp  { Nothing }
-  | name          { Nothing }
-  | FuncCall      { Nothing }
-  | Cin           { Nothing }
-  | Cout          { Nothing }
-  | Const         { Nothing }
-  | BinOp         { Nothing }
-  | '(' ValOp ')' { Nothing }
+  Expr            { 0 }
+  | 'return' Expr { 0 }
+Expr:
+  name '=' Expr  { ExpAssign $1 $3 }
+  | name         { ExpName $1 }
+  | FuncCall     { $1 }
+  | Cin          { $1 }
+  | Cout         { $1 }
+  | Const        { $1 }
+  | BinOp        { $1 }
+  | '(' Expr ')' { $2 }
 BinOp:
-  ValOp '+' ValOp    { Nothing }
-  | ValOp '-' ValOp  { Nothing }
-  | ValOp '*' ValOp  { Nothing }
-  | ValOp '/' ValOp  { Nothing }
-  | ValOp '==' ValOp { Nothing }
-  | ValOp '!=' ValOp { Nothing }
-  | ValOp '<' ValOp  { Nothing }
-  | ValOp '>' ValOp  { Nothing }
+  Expr '+' Expr    { ($1 :+: $3) }
+  | Expr '-' Expr  { ($1 :-: $3) }
+  | Expr '*' Expr  { ($1 :*: $3) }
+  | Expr '/' Expr  { ($1 :/: $3) }
+  | Expr '==' Expr { ($1 :==: $3) }
+  | Expr '!=' Expr { ($1 :!=: $3) }
+  | Expr '<' Expr  { ($1 :<: $3) }
+  | Expr '>' Expr  { ($1 :>: $3) }
 FuncCall:
-  name '(' ValArgs ')' { Nothing }
+  name '(' FuncArgs ')' { ExpFunCall $1 $3 }
 Cin:
-  'cin' InVars { Nothing }
-InVars:
-  '>>' name InVars { Nothing }
-  | '>>' name      { Nothing }
+  'cin' InVars { ExpCin $2 }
 Cout:
-  'cout' OutValues { Nothing }
-OutValues:
-  '<<' AnyOp OutValues { Nothing }
-  | '<<' AnyOp         { Nothing }
-ValArgs:
-  name ',' ValArgs    { Nothing }
-  | Const ',' ValArgs { Nothing }
-  | name              { Nothing }
-  | Const             { Nothing }
-  | {- empty -}       { Nothing }
+  'cout' OutValues { ExpCout $2 }
 Const:
-  valStr      { Nothing }
-  | valInt    { Nothing }
-  | valDouble { Nothing }
-  | valBool   { Nothing }
+  valStr      { ExpConstString $1 }
+  | valInt    { ExpConstInt $1 }
+  | valDouble { ExpConstDouble $1 }
+  | valBool   { ExpConstBool $1 }
+OutValues:
+  '<<' Expr OutValues { $2 : $3 }
+  | '<<' Expr         { [$2] }
+FuncArgs:
+  Expr ',' FuncArgs { $1 : $3 }
+  | Expr           { [$1] }
+  | {- empty -}    { [] }
 Type:
-  'double'   { Nothing }
-  | 'int'    { Nothing }
-  | 'bool'   { Nothing }
-  | 'string' { Nothing }
+  'double'   { CDouble }
+  | 'int'    { CInt }
+  | 'bool'   { CBool }
+  | 'string' { CString }
+InVars:
+  '>>' name InVars { $2 : $3 }
+  | '>>' name      { [$2] }
 
 {
-parseError :: [Token] -> a
-parseError = error . show
+parseError :: [Token] -> Maybe a
+parseError tkns = Nothing
 
-
+thenE :: Maybe a -> (a -> Maybe b) -> Maybe b
+m `thenE` k =
+  case m of
+    Just a -> k a
+    Nothing -> Nothing
 }

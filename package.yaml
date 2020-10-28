@@ -22,6 +22,7 @@ description:         Please see the README on GitHub at <https://github.com/deff
 dependencies:
 - base >= 4.7 && < 5
 - array == 0.5.4.0
+- mtl == 2.2.2
 
 library:
   source-dirs: src
