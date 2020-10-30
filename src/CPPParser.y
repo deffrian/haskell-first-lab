@@ -5,12 +5,13 @@ import Data.Char
 import Control.Monad.Identity
 import Utils
 import Data.List.NonEmpty (NonEmpty(..))
+import Control.Monad.Except
 }
 
 %name cppParser
 %tokentype { Lex.Token }
 %error { parseError }
-%monad { Maybe } { thenE } { \x -> Just x }
+%monad { Except ParseError } { >>= } { return }
 
 %token
   'int'      { Lex.TypeInt }
@@ -108,10 +109,11 @@ Cin:
 Cout:
   'cout' OutValues { ExpCout $2 }
 Const:
-  valStr      { ExpConstString $1 }
-  | valInt    { ExpConstInt $1 }
-  | valDouble { ExpConstDouble $1 }
-  | valBool   { ExpConstBool $1 }
+  valStr       { ExpConstString $1 }
+  | valInt     { ExpConstInt $1 }
+  | '-' valInt { ExpConstInt (-$2) }
+  | valDouble  { ExpConstDouble $1 }
+  | valBool    { ExpConstBool $1 }
 OutValues:
   '<<' Expr OutValues { $2 : $3 }
   | '<<' Expr         { [$2] }
@@ -129,12 +131,10 @@ InVars:
   | '>>' name      { [$2] }
 
 {
-parseError :: [Lex.Token] -> Maybe a
-parseError tkns = Nothing
+data ParseError = UnexpectedEnd | UnexpectedToken Lex.Token deriving Show
 
-thenE :: Maybe a -> (a -> Maybe b) -> Maybe b
-m `thenE` k =
-  case m of
-    Just a -> k a
-    Nothing -> Nothing
+parseError :: [Lex.Token] -> Except ParseError a
+parseError [] = throwError UnexpectedEnd
+parseError (t : _) = throwError $ UnexpectedToken t
+
 }

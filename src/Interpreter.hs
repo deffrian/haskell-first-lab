@@ -29,14 +29,17 @@ data InterpretError where
   IOError :: String -> InterpretError
   BadOperation :: String -> InterpretError
   TypeMismatch :: CType -> CType -> String -> InterpretError
-  
+  BadNumberOfArgs :: Name -> Int -> Int -> String -> InterpretError
+
 instance PrettyPrinter InterpretError where
-  showPretty (NoVariable n extra) = "Cant find variable named " ++ n ++ "\n" ++ extra
-  showPretty (NoFunc n extra) = "Cant find function named " ++ n ++ "\n" ++ extra
+  showPretty (NoVariable n extra) = "Cant find variable " ++ show n ++ "\n" ++ extra
+  showPretty (NoFunc n extra) = "Cant find function named " ++ show n ++ "\n" ++ extra
   showPretty (NoMainFunc extra) = "Cant find main functon\n" ++ extra
   showPretty (IOError extra) = "IO error\n" ++ extra
-  showPretty (TypeMismatch a b extra) = "Type mismatch: expected " ++ showPretty a ++ " got " ++ showPretty b ++ "\n" ++ extra 
+  showPretty (TypeMismatch a b extra) = "Type mismatch: expected " ++ showPretty a ++ " got " ++ showPretty b ++ "\n" ++ extra
   showPretty (BadOperation extra) = "Bad operation\n" ++ extra
+  showPretty (BadNumberOfArgs n a b extra) = "Bad number of arguments in " ++ show n ++ " call expected " ++ 
+                                             show a ++ " was " ++ show b ++ "\n" ++ extra
 
 setValue :: String -> Expr -> AnyFuncM
 setValue targetName e = do
@@ -67,9 +70,9 @@ addVar :: Var -> ProgramState -> ProgramState
 addVar var ps = ProgramState { vars = var : vars ps, funcs = funcs ps }
 
 getValue :: Name -> AnyFuncM
-getValue targetName = do 
+getValue targetName = do
   t <- get
-  helper $ vars t 
+  helper $ vars t
   where
     helper [] = throwError $ NoVariable targetName ""
     helper (Var curName res : tl)
@@ -90,12 +93,18 @@ getVarType targetName = do
     getType (CDoubleVal _) = CDouble
     getType (CBoolVal _) = CBool
 
-makeArg :: ArgVar -> CConst -> Except InterpretError Var
-makeArg (ArgVar CString name) syn@(CStringVal _) = return $ Var name syn
-makeArg (ArgVar CInt name) syn@(CIntVal _) = return $ Var name syn
-makeArg (ArgVar CDouble name) syn@(CDoubleVal _) = return $ Var name syn
-makeArg (ArgVar CBool name) syn@(CBoolVal _) = return $ Var name syn
-makeArg _ _ = throwError $ TypeMismatch CInt CDouble "Not implemented"
+getType :: CConst -> CType
+getType (CStringVal _) = CString
+getType (CIntVal _) = CInt
+getType (CDoubleVal _) = CDouble
+getType (CBoolVal _) = CBool
+
+makeArg :: Name -> ArgVar -> CConst -> Except InterpretError Var
+makeArg _ (ArgVar CString name) syn@(CStringVal _) = return $ Var name syn
+makeArg _ (ArgVar CInt name) syn@(CIntVal _) = return $ Var name syn
+makeArg _ (ArgVar CDouble name) syn@(CDoubleVal _) = return $ Var name syn
+makeArg _ (ArgVar CBool name) syn@(CBoolVal _) = return $ Var name syn
+makeArg funN (ArgVar tp varN) val = throwError $ TypeMismatch tp (getType val) ("  variable " ++ show varN ++ " in " ++ show funN ++ " call")
 
 extractM :: [AnyFuncM] -> FuncM [CConst]
 extractM [] = return []
@@ -103,7 +112,7 @@ extractM (e : es) = do
   e' <- e
   es' <- extractM es
   return (e' : es')
-  
+
 
 
 evalAnyExp :: Expr -> AnyFuncM
@@ -126,7 +135,10 @@ evalAnyExp (ExpFunCall name args) = do
     findFunc (f : fs)
       | sFuncName f == name = return f
       | otherwise           = findFunc fs
-    callFunc fun args' = tt $ fmap (uncurry makeArg) (zip (sFuncArgs fun) args')
+    callFunc fun args' 
+      | length (sFuncArgs fun) == length args = tt $ fmap (uncurry (makeArg name)) (zip (sFuncArgs fun) args')
+      | otherwise                             = throwError $ 
+                                                  BadNumberOfArgs (sFuncName fun) (length (sFuncArgs fun)) (length args) ""
     tt :: [Except InterpretError Var] -> FuncM [Var]
     tt [] = return []
     tt (e : es) = do
@@ -157,7 +169,7 @@ evalAnyExp (ExpCout es) = coutHelper es where
   coutHelper [] = return $ CBoolVal True
   coutHelper (e : tl) = do
     e' <- evalAnyExp e
-    liftIO $ putStrLn $ showPretty e'
+    liftIO $ putStr $ showPretty e'
     coutHelper tl
 
 evalAnyExp (ExpAssign n e) = setValue n e
@@ -199,28 +211,28 @@ evalStringExp e = do
   res <- evalAnyExp e
   case res of
       CStringVal s -> return s
-      _ -> throwError $ TypeMismatch CInt CDouble "Not implemented"
+      _ -> throwError $ TypeMismatch CString (getType res) ("  in expression " ++ showPretty e)
 
 evalIntExp :: Expr -> IntFuncM
 evalIntExp e = do
   res <- evalAnyExp e
   case res of
       CIntVal i -> return i
-      _ -> throwError $ TypeMismatch CInt CDouble "Not implemented"
+      _ -> throwError $ TypeMismatch CInt (getType res) ("  in expression " ++ showPretty e)
 
 evalDoubleExp :: Expr -> DoubleFuncM
 evalDoubleExp e = do
   res <- evalAnyExp e
   case res of
       CDoubleVal d -> return d
-      _ -> throwError $ TypeMismatch CInt CDouble "Not implemented"
+      _ -> throwError $ TypeMismatch CDouble (getType res) ("  in expression " ++ showPretty e)
 
 evalBoolExp :: Expr -> BoolFuncM
 evalBoolExp e = do
   res <- evalAnyExp e
   case res of
     CBoolVal b -> return b
-    _ -> throwError $ TypeMismatch CInt CDouble "Not implemented"
+    _ -> throwError $ TypeMismatch CBool (getType res) ("  in expression " ++ showPretty e)
 
 evalVoidExp :: Expr -> VoidFuncM
 evalVoidExp e = do
@@ -252,10 +264,10 @@ makeAnyFunc (Func _ _ _ body) = helper body where
   helper [] = return $ CIntVal 0
   helper b = do
     b' <- execBody b
-    case b' of 
+    case b' of
       Nothing -> return $ CIntVal 0
-      (Just res) -> return res 
-  
+      (Just res) -> return res
+
   execBody :: Body -> FuncM (Maybe CConst)
   execBody [] = return Nothing
   execBody (Return e : _) = do
@@ -290,17 +302,14 @@ makeAnyFunc (Func _ _ _ body) = helper body where
     case res of
       Nothing -> execBody tl
       syn@(Just _) -> return syn
-  execBody syn@(While cnd whileBody : tl) = do
+  execBody while@(While cnd whileBody : tl) = do
     res <- evalBoolExp cnd
     res' <- if res then do
-      bodyRes <- execBody whileBody
-      case bodyRes of
-        Nothing -> execBody syn
-        syn@(Just _) -> return syn
+      execBody whileBody
     else
-      execBody tl 
+      return Nothing
     case res' of
-      Nothing -> execBody tl
+      Nothing -> if res then execBody while else execBody tl
       syn@(Just _) -> return syn
 
 makeStringFunc :: Func -> StringFuncM
@@ -308,8 +317,8 @@ makeStringFunc syn@(Func CString _ _ _) = do
   res <- makeAnyFunc syn
   case res of
     CStringVal s -> return s
-    _         -> throwError $ TypeMismatch CInt CDouble "Not implemented"
-makeStringFunc _ = throwError $ TypeMismatch CInt CDouble "Not implemented"
+    _            -> throwError $ TypeMismatch CString (getType res) ("  in function " ++ funcName syn)
+makeStringFunc f = throwError $ TypeMismatch CString (funcType f) ("  in function " ++ funcName f)
 
 makeIntFuncM :: Func -> IntFuncM
 makeIntFuncM syn@(Func CInt _ _ body) = helper body where
@@ -318,29 +327,29 @@ makeIntFuncM syn@(Func CInt _ _ body) = helper body where
     res <- makeAnyFunc syn
     case res of
       CIntVal i -> return i
-      _         -> throwError $ TypeMismatch CInt CDouble "Not implemented"
-makeIntFuncM _ = throwError $ TypeMismatch CInt CDouble "Not implemented"
+      _         -> throwError $ TypeMismatch CInt (getType res) ("  in function " ++ funcName syn)
+makeIntFuncM f = throwError $ TypeMismatch CInt (funcType f) ("  in function " ++ funcName f)
 
 makeDoubleFunc :: Func -> DoubleFuncM
 makeDoubleFunc syn@(Func CDouble _ _ _) = do
   res <- makeAnyFunc syn
   case res of
     CDoubleVal d -> return d
-    _         -> throwError $ TypeMismatch CInt CDouble "Not implemented"
-makeDoubleFunc _ = throwError $ TypeMismatch CInt CDouble "Not implemented"
+    _         -> throwError $ TypeMismatch CDouble (getType res) ("  in function " ++ funcName syn)
+makeDoubleFunc f = throwError $ TypeMismatch CDouble (funcType f) ("  in function " ++ funcName f)
 
 makeBoolFunc :: Func -> BoolFuncM
 makeBoolFunc syn@(Func CBool _ _ _) = do
   res <- makeAnyFunc syn
   case res of
     CBoolVal b -> return b
-    _         -> throwError $ TypeMismatch CInt CDouble "Not implemented"
-makeBoolFunc _ = throwError $ TypeMismatch CInt CDouble "Not implemented"
+    _         -> throwError $ TypeMismatch CBool (getType res) ("  in function " ++ funcName syn)
+makeBoolFunc f = throwError $ TypeMismatch CInt (funcType f) ("  in function " ++ funcName f)
 
 getMain :: [Func] -> IntFuncM
-getMain [] = throwError $ TypeMismatch CInt CDouble "Not implemented"
+getMain [] = throwError $ NoMainFunc ""
 getMain (f : fs)
-  | funcName f == "main" = if funcType f == CInt then makeIntFuncM f else throwError $ TypeMismatch CInt CDouble "Not implemented"
+  | funcName f == "main" = if funcType f == CInt then makeIntFuncM f else throwError $ TypeMismatch CInt (funcType f) "  main type should be int"
   | otherwise            = getMain fs
 
 (.+.) :: CConst -> CConst -> AnyFuncM

@@ -3,6 +3,7 @@
 module PrettyPrinter where
 
 import Utils
+import CPPParser
 
 showTabs :: Word -> String
 showTabs 0 = ""
@@ -107,8 +108,12 @@ instance PrettyPrinter ArgVar where
   showPretty (ArgVar tp name) = showPretty tp ++ " " ++ name
   
 instance PrettyPrinter CConst where
-  showPretty (CStringVal s) = show s
+  showPretty (CStringVal s) = s
   showPretty (CIntVal i) = show i
   showPretty (CDoubleVal d) = show d
   showPretty (CBoolVal True) = "true"
   showPretty (CBoolVal False) = "false"
+  
+instance PrettyPrinter ParseError where
+  showPretty (UnexpectedEnd) = "Unexpected end token"
+  showPretty (UnexpectedToken t) = "Unexpected token: " ++ show t
