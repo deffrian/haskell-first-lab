@@ -38,7 +38,7 @@ instance PrettyPrinter InterpretError where
   showPretty (IOError extra) = "IO error\n" ++ extra
   showPretty (TypeMismatch a b extra) = "Type mismatch: expected " ++ showPretty a ++ " got " ++ showPretty b ++ "\n" ++ extra
   showPretty (BadOperation extra) = "Bad operation\n" ++ extra
-  showPretty (BadNumberOfArgs n a b extra) = "Bad number of arguments in " ++ show n ++ " call expected " ++ 
+  showPretty (BadNumberOfArgs n a b extra) = "Bad number of arguments in " ++ show n ++ " call expected " ++
                                              show a ++ " was " ++ show b ++ "\n" ++ extra
 
 setValue :: String -> Expr -> AnyFuncM
@@ -135,9 +135,9 @@ evalAnyExp (ExpFunCall name args) = do
     findFunc (f : fs)
       | sFuncName f == name = return f
       | otherwise           = findFunc fs
-    callFunc fun args' 
+    callFunc fun args'
       | length (sFuncArgs fun) == length args = tt $ fmap (uncurry (makeArg name)) (zip (sFuncArgs fun) args')
-      | otherwise                             = throwError $ 
+      | otherwise                             = throwError $
                                                   BadNumberOfArgs (sFuncName fun) (length (sFuncArgs fun)) (length args) ""
     tt :: [Except InterpretError Var] -> FuncM [Var]
     tt [] = return []
