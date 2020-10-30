@@ -27,6 +27,7 @@ data InterpretError where
   NoFunc :: Name -> String -> InterpretError
   NoMainFunc :: String -> InterpretError
   IOError :: String -> InterpretError
+  BadOperation :: String -> InterpretError
   TypeMismatch :: CType -> CType -> String -> InterpretError
   
 instance PrettyPrinter InterpretError where
@@ -35,6 +36,7 @@ instance PrettyPrinter InterpretError where
   showPretty (NoMainFunc extra) = "Cant find main functon\n" ++ extra
   showPretty (IOError extra) = "IO error\n" ++ extra
   showPretty (TypeMismatch a b extra) = "Type mismatch: expected " ++ showPretty a ++ " got " ++ showPretty b ++ "\n" ++ extra 
+  showPretty (BadOperation extra) = "Bad operation\n" ++ extra
 
 setValue :: String -> Expr -> AnyFuncM
 setValue targetName e = do
@@ -64,40 +66,36 @@ setValue targetName e = do
 addVar :: Var -> ProgramState -> ProgramState
 addVar var ps = ProgramState { vars = var : vars ps, funcs = funcs ps }
 
-getValueInt :: Name -> ProgramState -> Int
-getValueInt targetName st = helper $ vars st where
-  helper [] = error "No such variable"
-  helper (Var curName (CIntVal i) : tl) 
-    | curName == targetName = i
-    | otherwise = helper tl
-  helper (Var curName _ : tl)
-    | curName == targetName = error "Type missmatch"
-    | otherwise = helper tl
+getValue :: Name -> AnyFuncM
+getValue targetName = do 
+  t <- get
+  helper $ vars t 
+  where
+    helper [] = throwError $ NoVariable targetName ""
+    helper (Var curName res : tl)
+      | curName == targetName = return res
+      | otherwise             = helper tl
 
-getValue :: Name -> ProgramState -> CConst
-getValue targetName = helper . vars where
-  helper [] = error $ "No such variable"
-  helper (Var curName res : tl)
-    | curName == targetName = res
-    | otherwise             = helper tl
+getVarType :: Name -> FuncM CType
+getVarType targetName = do
+  t <- get
+  helper $ vars t
+  where
+    helper [] = throwError $ NoVariable targetName ""
+    helper (Var curName val : tl)
+      | curName == targetName = return $ getType val
+      | otherwise             = helper tl
+    getType (CStringVal _) = CString
+    getType (CIntVal _) = CInt
+    getType (CDoubleVal _) = CDouble
+    getType (CBoolVal _) = CBool
 
-getVarType :: Name -> ProgramState -> CType
-getVarType targetName = helper . vars where
-  helper [] = error "No such variable"
-  helper (Var curName val : tl)
-    | curName == targetName = getType val
-    | otherwise             = helper tl
-  getType (CStringVal _) = CString
-  getType (CIntVal _) = CInt
-  getType (CDoubleVal _) = CDouble
-  getType (CBoolVal _) = CBool
-
-makeArg :: ArgVar -> CConst -> Var
-makeArg (ArgVar CString name) syn@(CStringVal _) = Var name syn
-makeArg (ArgVar CInt name) syn@(CIntVal _) = Var name syn
-makeArg (ArgVar CDouble name) syn@(CDoubleVal _) = Var name syn
-makeArg (ArgVar CBool name) syn@(CBoolVal _) = Var name syn
-makeArg _ _ = error "Type missmatch"
+makeArg :: ArgVar -> CConst -> Except InterpretError Var
+makeArg (ArgVar CString name) syn@(CStringVal _) = return $ Var name syn
+makeArg (ArgVar CInt name) syn@(CIntVal _) = return $ Var name syn
+makeArg (ArgVar CDouble name) syn@(CDoubleVal _) = return $ Var name syn
+makeArg (ArgVar CBool name) syn@(CBoolVal _) = return $ Var name syn
+makeArg _ _ = throwError $ TypeMismatch CInt CDouble "Not implemented"
 
 extractM :: [AnyFuncM] -> FuncM [CConst]
 extractM [] = return []
@@ -105,9 +103,11 @@ extractM (e : es) = do
   e' <- e
   es' <- extractM es
   return (e' : es')
+  
+
 
 evalAnyExp :: Expr -> AnyFuncM
-evalAnyExp (ExpName n) = do gets (getValue n)
+evalAnyExp (ExpName n) = getValue n
 evalAnyExp (ExpConstString s) = return $ CStringVal s
 evalAnyExp (ExpConstInt i) = return $ CIntVal i
 evalAnyExp (ExpConstDouble d) = return $ CDoubleVal d
@@ -116,7 +116,7 @@ evalAnyExp (ExpFunCall name args) = do
   args' <- extractM $ fmap evalAnyExp args
   (ProgramState _ fs) <- get
   fun <- findFunc fs
-  let tmp = callFunc fun args'
+  tmp <- callFunc fun args'
   res <- liftIO $ runExceptT $ evalStateT (sFuncBody fun) (ProgramState tmp fs)
   case res of
     syn@(Left _) -> liftEither syn
@@ -126,12 +126,20 @@ evalAnyExp (ExpFunCall name args) = do
     findFunc (f : fs)
       | sFuncName f == name = return f
       | otherwise           = findFunc fs
-    callFunc fun args' = fmap (uncurry makeArg) (zip (sFuncArgs fun) args')
+    callFunc fun args' = tt $ fmap (uncurry makeArg) (zip (sFuncArgs fun) args')
+    tt :: [Except InterpretError Var] -> FuncM [Var]
+    tt [] = return []
+    tt (e : es) = do
+      case runExcept e of
+        (Left err) -> throwError err
+        (Right ok) -> do
+          es' <- tt es
+          return (ok : es')
 evalAnyExp (ExpCin vs) = cinHelper vs where
   cinHelper [] = return $ CBoolVal True
   cinHelper (n : tl) = do
-    st <- get
-    _ <- case getVarType n st of
+    vType <- getVarType n
+    _ <- case vType of
       CString -> do
         res <- liftIO getLine
         setValue n (ExpConstString res)
@@ -156,35 +164,35 @@ evalAnyExp (ExpAssign n e) = setValue n e
 evalAnyExp (a :+: b) = do
   a' <- evalAnyExp a
   b' <- evalAnyExp b
-  return (a' + b')
+  a' .+. b'
 evalAnyExp (a :-: b) = do
   a' <- evalAnyExp a
   b' <- evalAnyExp b
-  return (a' - b')
+  a' .-. b'
 evalAnyExp (a :*: b) = do
   a' <- evalAnyExp a
   b' <- evalAnyExp b
-  return (a' * b')
+  a' .*. b'
 evalAnyExp (a :/: b) = do
   a' <- evalAnyExp a
   b' <- evalAnyExp b
-  return (a' / b')
+  a' ./. b'
 evalAnyExp (a :<: b) = do
   a' <- evalAnyExp a
   b' <- evalAnyExp b
-  return $ CBoolVal (a' < b')
+  a' .<. b'
 evalAnyExp (a :>: b) = do
   a' <- evalAnyExp a
   b' <- evalAnyExp b
-  return $ CBoolVal (a' > b')
+  a' .>. b'
 evalAnyExp (a :!=: b) = do
   a' <- evalAnyExp a
   b' <- evalAnyExp b
-  return $ CBoolVal (a' /= b')
+  a' .!=. b'
 evalAnyExp (a :==: b) = do
   a' <- evalAnyExp a
   b' <- evalAnyExp b
-  return $ CBoolVal (a' == b')
+  a' .==. b'
 
 evalStringExp :: Expr -> StringFuncM
 evalStringExp e = do
@@ -242,40 +250,58 @@ addBoolVar n e = do
 makeAnyFunc :: Func -> AnyFuncM
 makeAnyFunc (Func _ _ _ body) = helper body where
   helper [] = return $ CIntVal 0
-  helper (Return e : tl) = evalAnyExp e
-  helper (Val e : tl) = do
+  helper b = do
+    b' <- execBody b
+    case b' of 
+      Nothing -> return $ CIntVal 0
+      (Just res) -> return res 
+  
+  execBody :: Body -> FuncM (Maybe CConst)
+  execBody [] = return Nothing
+  execBody (Return e : _) = do
+    e' <- evalAnyExp e
+    return $ Just e'
+  execBody (Val e : tl) = do
     evalVoidExp e
-    helper tl
-  helper (DiffString n e : tl) = do
+    execBody tl
+  execBody (DiffString n e : tl) = do
     addStringVar n e
-    helper tl
-  helper (DiffInt n e : tl) = do
+    execBody tl
+  execBody (DiffInt n e : tl) = do
     addIntVar n e
-    helper tl
-  helper (DiffDouble n e : tl) = do
+    execBody tl
+  execBody (DiffDouble n e : tl) = do
     addDoubleVar n e
-    helper tl
-  helper (DiffBool n e : tl) = do
+    execBody tl
+  execBody (DiffBool n e : tl) = do
     addBoolVar n e
-    helper tl
-  helper (If e thn Nothing : tl) = do
+    execBody tl
+  execBody (If e thn Nothing : tl) = do
     cnd <- evalBoolExp e
-    when cnd $ do
-      _ <- helper thn
-      return ()
-    helper tl
-  helper (If e thn (Just els) : tl) = do
+    res <- if cnd then execBody thn
+                  else return Nothing
+    case res of
+      Nothing -> execBody tl
+      syn@(Just _) -> return syn
+  execBody (If e thn (Just els) : tl) = do
     cnd <- evalBoolExp e
-    _ <- if cnd then helper thn
-                else helper els
-    helper tl
-  helper syn@(While cnd whileBody : tl) = do
+    res <- if cnd then execBody thn
+                  else execBody els
+    case res of
+      Nothing -> execBody tl
+      syn@(Just _) -> return syn
+  execBody syn@(While cnd whileBody : tl) = do
     res <- evalBoolExp cnd
-    if res then do
-      _ <- helper whileBody
-      helper syn
+    res' <- if res then do
+      bodyRes <- execBody whileBody
+      case bodyRes of
+        Nothing -> execBody syn
+        syn@(Just _) -> return syn
     else
-      helper tl
+      execBody tl 
+    case res' of
+      Nothing -> execBody tl
+      syn@(Just _) -> return syn
 
 makeStringFunc :: Func -> StringFuncM
 makeStringFunc syn@(Func CString _ _ _) = do
@@ -317,4 +343,53 @@ getMain (f : fs)
   | funcName f == "main" = if funcType f == CInt then makeIntFuncM f else throwError $ TypeMismatch CInt CDouble "Not implemented"
   | otherwise            = getMain fs
 
+(.+.) :: CConst -> CConst -> AnyFuncM
+(.+.) (CStringVal a) (CStringVal b) = return $ CStringVal (a ++ b)
+(.+.) (CIntVal a) (CIntVal b) = return $ CIntVal (a + b)
+(.+.) (CDoubleVal a) (CDoubleVal b) = return $ CDoubleVal (a + b)
+(.+.) (CBoolVal True) (CBoolVal _) = return $ CBoolVal True
+(.+.) (CBoolVal _) (CBoolVal True) = return $ CBoolVal True
+(.+.) (CBoolVal _) (CBoolVal _) = return $ CBoolVal False
+(.+.) _ _ = throwError $ BadOperation "+"
 
+(.*.) :: CConst -> CConst -> AnyFuncM
+(.*.) (CIntVal a) (CIntVal b) = return $ CIntVal (a * b)
+(.*.) (CDoubleVal a) (CDoubleVal b) = return $ CDoubleVal (a * b)
+(.*.) (CBoolVal True) (CBoolVal True) = return $ CBoolVal True
+(.*.) (CBoolVal _) (CBoolVal _) = return $ CBoolVal False
+(.*.) _ _ = throwError $ BadOperation "*"
+
+(.-.) :: CConst -> CConst -> AnyFuncM
+(.-.) (CIntVal a) (CIntVal b) = return $ CIntVal (a - b)
+(.-.) (CDoubleVal a) (CDoubleVal b) = return $ CDoubleVal (a - b)
+(.-.) (CBoolVal True) (CBoolVal True) =return $  CBoolVal False
+(.-.) (CBoolVal False) (CBoolVal False) = return $ CBoolVal False
+(.-.) (CBoolVal _) (CBoolVal _) = return $ CBoolVal True
+(.-.) _ _ = throwError $ BadOperation "-"
+
+(./.) :: CConst -> CConst -> AnyFuncM
+(./.) (CIntVal a) (CIntVal b) = return $ CIntVal (a `div` b)
+(./.) (CDoubleVal a) (CDoubleVal b) = return $ CDoubleVal (a / b)
+(./.) _ _ = throwError $ BadOperation "/"
+
+(.<.) :: CConst -> CConst -> AnyFuncM
+(.<.) (CIntVal a) (CIntVal b) = return $ CBoolVal $ a < b
+(.<.) (CDoubleVal a) (CDoubleVal b) = return $ CBoolVal $ a < b
+(.<.) _ _ = throwError $ BadOperation "<"
+
+(.>.) :: CConst -> CConst -> AnyFuncM
+(.>.) (CIntVal a) (CIntVal b) = return $ CBoolVal $ a > b
+(.>.) (CDoubleVal a) (CDoubleVal b) = return $ CBoolVal $ a > b
+(.>.) _ _ = throwError $ BadOperation ">"
+
+(.==.) :: CConst -> CConst -> AnyFuncM
+(.==.) (CIntVal a) (CIntVal b) = return $ CBoolVal $ a == b
+(.==.) (CStringVal a) (CStringVal b) = return $ CBoolVal $ a == b
+(.==.) (CDoubleVal a) (CDoubleVal b) = return $ CBoolVal $ a == b
+(.==.) (CBoolVal a) (CBoolVal b) = return $ CBoolVal $ a == b
+(.==.) _ _ = throwError $ BadOperation "=="
+
+(.!=.) :: CConst -> CConst -> AnyFuncM
+(.!=.) a b = do
+  (CBoolVal res) <- a .==. b
+  return $ CBoolVal $ not res
