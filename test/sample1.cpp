@@ -3,7 +3,7 @@ int func(int a) {
 }
 
 int main() {
-  int a;
+  int a, b = 2;
   cin >> a;
   cout << "func(a) = " << func(a);
 }

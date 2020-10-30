@@ -5,6 +5,7 @@ import CPPLexer as L
 import Control.Monad.Identity as Id
 import CPPParser as P
 import Utils
+import PrettyPrinter
 import Control.Monad.State
 
 {-program :: Func
@@ -16,11 +17,11 @@ program = do
   return $ var
 -}
 
-tmp :: [Token] -> Maybe Integer
+tmp :: [Token] -> Maybe [Func]
 tmp = P.cppParser
 
 main :: IO ()
 main = do
-  x <- readFile "test/sample5.cpp"
+  x <- readFile "test/sample7.cpp"
   let res = tmp $ L.alexScanTokens x
-  print res
+  putStrLn $ showPrettyWithTabs 0 res

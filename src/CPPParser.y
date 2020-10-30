@@ -1,6 +1,6 @@
 {
 module CPPParser where
-import CPPLexer
+import qualified CPPLexer as Lex
 import Data.Char
 import Control.Monad.Identity
 import Utils
@@ -8,75 +8,81 @@ import Data.List.NonEmpty (NonEmpty(..))
 }
 
 %name cppParser
-%tokentype { Token }
+%tokentype { Lex.Token }
 %error { parseError }
 %monad { Maybe } { thenE } { \x -> Just x }
 
 %token
-  'int'      { TypeInt }
-  'double'   { TypeDouble }
-  'bool'     { TypeBool }
-  'string'   { TypeString }
-  'while'    { While }
-  'if'       { If }
-  'else'     { Else }
-  'cin'      { Cin }
-  'cout'     { Cout }
-  '<<'       { OpMvLeft }
-  '>>'       { OpMvRight }
-  '+'        { OpPlus }
-  '-'        { OpSub }
-  '*'        { OpMul }
-  '/'        { OpDiv }
-  '=='       { OpEq }
-  '!='       { OpNotEq }
-  '<'        { OpLess }
-  '>'        { OpGreater }
-  '('        { OpenBracket }
-  ')'        { CloseBracket }
-  '{'        { OpenBrace }
-  '}'        { CloseBrace }
-  ','        { Comma }
-  ';'        { Semicolon }
-  '='        { Assignment }
-  'return'   { Return }
-  valBool    { ValBool $$ }
-  valStr     { ValString $$ }
-  valInt     { ValInt $$ }
-  valDouble  { ValDouble $$ }
-  name       { Name $$ }
+  'int'      { Lex.TypeInt }
+  'double'   { Lex.TypeDouble }
+  'bool'     { Lex.TypeBool }
+  'string'   { Lex.TypeString }
+  'while'    { Lex.While }
+  'if'       { Lex.If }
+  'else'     { Lex.Else }
+  'cin'      { Lex.Cin }
+  'cout'     { Lex.Cout }
+  '<<'       { Lex.OpMvLeft }
+  '>>'       { Lex.OpMvRight }
+  '+'        { Lex.OpPlus }
+  '-'        { Lex.OpSub }
+  '*'        { Lex.OpMul }
+  '/'        { Lex.OpDiv }
+  '=='       { Lex.OpEq }
+  '!='       { Lex.OpNotEq }
+  '<'        { Lex.OpLess }
+  '>'        { Lex.OpGreater }
+  '('        { Lex.OpenBracket }
+  ')'        { Lex.CloseBracket }
+  '{'        { Lex.OpenBrace }
+  '}'        { Lex.CloseBrace }
+  ','        { Lex.Comma }
+  ';'        { Lex.Semicolon }
+  '='        { Lex.Assignment }
+  'return'   { Lex.Return }
+  valBool    { Lex.ValBool $$ }
+  valStr     { Lex.ValString $$ }
+  valInt     { Lex.ValInt $$ }
+  valDouble  { Lex.ValDouble $$ }
+  name       { Lex.Name $$ }
+
+  %left '==' '!=' '<' '>'
+  %left '+' '-'
+  %left '*' '/'
 %%
 
+
+
 Code:
-  Func Code { 0 }
-  | Func    { 0 }
+  Func Code { $1 : $2 }
+  | Func    { [$1] }
 Func:
-  Type name '(' DeclArgs ')' '{' Body '}' { 0 }
+  Type name '(' DeclArgs ')' '{' Body '}' { Func $1 $2 $4 $7 }
 DeclArgs:
-  Type name ',' DeclArgs  { 0 }
-  | Type name             { 0 }
-  | {- empty -}           { 0 }
+  Type name ',' DeclArgs  { ArgVar $1 $2 : $4 }
+  | Type name             { [ArgVar $1 $2] }
+  | {- empty -}           { [] }
 Body:
-  Cycle Body       { 0 }
-  | If Body        { 0 }
-  | Diff ';' Body  { 0 }
-  | AnyOp ';' Body { 0 }
-  | {- empty -}    { 0 }
+  Cycle Body       { $1 : $2 }
+  | If Body        { $1 : $2 }
+  | Diff ';' Body  { $1 ++ $3 }
+  | AnyOp ';' Body { $1 : $3 }
+  | {- empty -}    { [] }
 Cycle:
-  'while' '(' Expr ')' '{' Body '}'  { 0 }
+  'while' '(' Expr ')' '{' Body '}'  { While $3 $6 }
 If:
-  'if' '(' Expr ')' '{' Body '}'                        { 0 }
-  | 'if' '(' Expr ')' '{' Body '}' 'else' '{' Body '}'  { 0 }
+  'if' '(' Expr ')' '{' Body '}'                        { If $3 $6 Nothing }
+  | 'if' '(' Expr ')' '{' Body '}' 'else' '{' Body '}'  { If $3 $6 (Just $10) }
 Diff:
-  Type DiffNames          { 0 }
+  Type DiffNames          { makeDiffList $1 $2 }
 DiffNames:
-  name { 0 }
-  | name '=' Expr { 0 }
-  | name ',' DiffNames { 0 }
-  | name '=' Expr ',' DiffNames { 0 }
+  name { [($1, Nothing)] }
+  | name '=' Expr { [($1, Just $3)] }
+  | name ',' DiffNames { ($1, Nothing) : $3 }
+  | name '=' Expr ',' DiffNames { ($1, Just $3) : $5 }
 AnyOp:
-  Expr            { 0 }
-  | 'return' Expr { 0 }
+  Expr            { Val $1 }
+  | 'return' Expr { Return $2 }
 Expr:
   name '=' Expr  { ExpAssign $1 $3 }
   | name         { ExpName $1 }
@@ -123,7 +129,7 @@ InVars:
   | '>>' name      { [$2] }
 
 {
-parseError :: [Token] -> Maybe a
+parseError :: [Lex.Token] -> Maybe a
 parseError tkns = Nothing
 
 thenE :: Maybe a -> (a -> Maybe b) -> Maybe b
