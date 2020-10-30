@@ -131,10 +131,9 @@ InVars:
   | '>>' name      { [$2] }
 
 {
-data ParseError = UnexpectedEnd | UnexpectedToken Lex.Token deriving Show
+data ParseError = UnexpectedEnd | UnexpectedToken Lex.Token deriving (Show, Eq)
 
 parseError :: [Lex.Token] -> Except ParseError a
 parseError [] = throwError UnexpectedEnd
 parseError (t : _) = throwError $ UnexpectedToken t
-
 }

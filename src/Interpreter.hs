@@ -113,8 +113,6 @@ extractM (e : es) = do
   es' <- extractM es
   return (e' : es')
 
-
-
 evalAnyExp :: Expr -> AnyFuncM
 evalAnyExp (ExpName n) = getValue n
 evalAnyExp (ExpConstString s) = return $ CStringVal s
