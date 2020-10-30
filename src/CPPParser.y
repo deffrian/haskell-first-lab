@@ -66,7 +66,7 @@ DeclArgs:
 Body:
   Cycle Body       { $1 : $2 }
   | If Body        { $1 : $2 }
-  | Diff ';' Body  { $1 ++ $3 }
+  | Def ';' Body  { $1 ++ $3 }
   | AnyOp ';' Body { $1 : $3 }
   | {- empty -}    { [] }
 Cycle:
@@ -74,13 +74,13 @@ Cycle:
 If:
   'if' '(' Expr ')' '{' Body '}'                        { If $3 $6 Nothing }
   | 'if' '(' Expr ')' '{' Body '}' 'else' '{' Body '}'  { If $3 $6 (Just $10) }
-Diff:
-  Type DiffNames          { makeDiffList $1 $2 }
-DiffNames:
+Def:
+  Type DefNames          { makeDefList $1 $2 }
+DefNames:
   name { [($1, Nothing)] }
   | name '=' Expr { [($1, Just $3)] }
-  | name ',' DiffNames { ($1, Nothing) : $3 }
-  | name '=' Expr ',' DiffNames { ($1, Just $3) : $5 }
+  | name ',' DefNames { ($1, Nothing) : $3 }
+  | name '=' Expr ',' DefNames { ($1, Just $3) : $5 }
 AnyOp:
   Expr            { Val $1 }
   | 'return' Expr { Return $2 }

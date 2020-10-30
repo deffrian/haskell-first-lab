@@ -18,7 +18,7 @@ spec = do
     it "return 0" $
       runExcept (P.cppParser $ L.alexScanTokens $ generateDefaultMain "0")
         `shouldBe` Right (generateDefaultAns (ExpConstInt 0))
-    it "return 1 + 1" $ 
+    it "return 1 + 1" $
       runExcept (P.cppParser $ L.alexScanTokens $ generateDefaultMain "1 + 1")
         `shouldBe` Right (generateDefaultAns (ExpConstInt 1 :+: ExpConstInt 1))
     it "return 2 * 3 + 1" $
@@ -50,24 +50,24 @@ spec = do
     it "int a" $
       runExcept (P.cppParser $ L.alexScanTokens "bool foo(int a) {}")
         `shouldBe` Right [Func CBool "foo" [ArgVar CInt "a"] []]
-    it "string a, int b" $ 
+    it "string a, int b" $
       runExcept (P.cppParser $ L.alexScanTokens "bool foo(string a, int b) {}")
         `shouldBe` Right [Func CBool "foo" [ArgVar CString "a", ArgVar CInt "b"] []]
   describe "Operations vits vars" $ do
     it "new var" $ do
       runExcept (P.cppParser $ L.alexScanTokens "bool foo() {int a;}")
-        `shouldBe` Right [Func CBool "foo" [] [DiffInt "a" (ExpConstInt 0)]]
+        `shouldBe` Right [Func CBool "foo" [] [DefInt "a" (ExpConstInt 0)]]
       runExcept (P.cppParser $ L.alexScanTokens "bool foo() {int a, b;}")
-        `shouldBe` Right [Func CBool "foo" [] [DiffInt "a" (ExpConstInt 0), DiffInt "b" (ExpConstInt 0)]]
+        `shouldBe` Right [Func CBool "foo" [] [DefInt "a" (ExpConstInt 0), DefInt "b" (ExpConstInt 0)]]
       runExcept (P.cppParser $ L.alexScanTokens "bool foo() {int a, b = 1;}")
-        `shouldBe` Right [Func CBool "foo" [] [DiffInt "a" (ExpConstInt 0), DiffInt "b" (ExpConstInt 1)]]
+        `shouldBe` Right [Func CBool "foo" [] [DefInt "a" (ExpConstInt 0), DefInt "b" (ExpConstInt 1)]]
       runExcept (P.cppParser $ L.alexScanTokens "bool foo() {int a = 2, b;}")
-        `shouldBe` Right [Func CBool "foo" [] [DiffInt "a" (ExpConstInt 2), DiffInt "b" (ExpConstInt 0)]]
+        `shouldBe` Right [Func CBool "foo" [] [DefInt "a" (ExpConstInt 2), DefInt "b" (ExpConstInt 0)]]
     it "assign var" $ do
       runExcept (P.cppParser $ L.alexScanTokens "bool foo() {a=2;}")
         `shouldBe` Right [Func CBool "foo" [] [Val $ ExpAssign "a" (ExpConstInt 2)]]
       runExcept (P.cppParser $ L.alexScanTokens "bool foo() {var = a;}")
-        `shouldBe` Right [Func CBool "foo" [] [Val $ ExpAssign "var" (ExpName "a")]]    
+        `shouldBe` Right [Func CBool "foo" [] [Val $ ExpAssign "var" (ExpName "a")]]
   describe "Conditions" $ do
     it "while" $ do
       runExcept (P.cppParser $ L.alexScanTokens "bool foo() {while(true){}}")

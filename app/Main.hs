@@ -9,6 +9,7 @@ import Control.Monad.State
 import Control.Monad.Except
 import System.Environment
 
+-- | Entry point
 main :: IO ()
 main = do
   args <- getArgs

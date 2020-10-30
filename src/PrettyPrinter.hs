@@ -5,14 +5,24 @@ module PrettyPrinter where
 import Utils
 import CPPParser
 
+-- | returns string with required number of spaces
 showTabs :: Word -> String
 showTabs 0 = ""
 showTabs n = "  " ++ showTabs (n - 1)
 
+-- | type class for c++ code print
 class PrettyPrinter a where
-  showPretty :: a -> String
+  -- | print value
+  showPretty 
+    :: a  -- ^ value to print
+    -> String
   showPretty = showPrettyWithTabs 0
-  showPrettyWithTabs :: Word -> a -> String
+  
+  -- | print with tabs
+  showPrettyWithTabs 
+    :: Word -- ^ number of tabs
+    -> a    -- ^ value to print
+    -> String
   showPrettyWithTabs n e = showTabs n ++ showPretty e
 
 instance PrettyPrinter [Func] where
@@ -44,10 +54,10 @@ instance PrettyPrinter Func where
 instance PrettyPrinter Line where
   showPrettyWithTabs tc (Val e) = showPrettyWithTabs tc e ++ ";"
   showPrettyWithTabs tc (Return e) = showTabs tc ++ "return " ++ showPretty e ++ ";"
-  showPrettyWithTabs tc (DiffString n s) = showTabs tc ++ "string " ++ n ++ " = " ++ showPretty s ++ ";"
-  showPrettyWithTabs tc (DiffInt n s) = showTabs tc ++ "int " ++ n ++ " = " ++ showPretty s ++ ";"
-  showPrettyWithTabs tc (DiffDouble n s) = showTabs tc ++ "double " ++ n ++ " = " ++ showPretty s ++ ";"
-  showPrettyWithTabs tc (DiffBool n s) = showTabs tc ++ "bool " ++ n ++ " = " ++ showPretty s ++ ";"
+  showPrettyWithTabs tc (DefString n s) = showTabs tc ++ "string " ++ n ++ " = " ++ showPretty s ++ ";"
+  showPrettyWithTabs tc (DefInt n s) = showTabs tc ++ "int " ++ n ++ " = " ++ showPretty s ++ ";"
+  showPrettyWithTabs tc (DefDouble n s) = showTabs tc ++ "double " ++ n ++ " = " ++ showPretty s ++ ";"
+  showPrettyWithTabs tc (DefBool n s) = showTabs tc ++ "bool " ++ n ++ " = " ++ showPretty s ++ ";"
   showPrettyWithTabs tc (If cnd thn Nothing) =
     showTabs tc ++ "if (" ++ showPretty cnd ++ ") {\n" ++
     showPrettyWithTabs (tc + 1) thn ++
@@ -94,11 +104,11 @@ instance PrettyPrinter CType where
   showPretty CInt = "int"
   showPretty CDouble = "double"
   showPretty CBool = "bool"
-  
+
 instance PrettyPrinter Body where
   showPrettyWithTabs _ [] = ""
   showPrettyWithTabs n (l : ls) = showPrettyWithTabs n l ++ "\n" ++ showPrettyWithTabs n ls
-  
+
 instance PrettyPrinter FuncArgs where
   showPretty [] = ""
   showPretty [lst] = showPretty lst
@@ -106,14 +116,14 @@ instance PrettyPrinter FuncArgs where
 
 instance PrettyPrinter ArgVar where
   showPretty (ArgVar tp name) = showPretty tp ++ " " ++ name
-  
+
 instance PrettyPrinter CConst where
   showPretty (CStringVal s) = s
   showPretty (CIntVal i) = show i
   showPretty (CDoubleVal d) = show d
   showPretty (CBoolVal True) = "true"
   showPretty (CBoolVal False) = "false"
-  
+
 instance PrettyPrinter ParseError where
-  showPretty (UnexpectedEnd) = "Unexpected end token"
+  showPretty UnexpectedEnd = "Unexpected end token"
   showPretty (UnexpectedToken t) = "Unexpected token: " ++ show t
