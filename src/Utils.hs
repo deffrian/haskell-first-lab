@@ -4,22 +4,41 @@ module Utils where
 
 type Name = String
 
-data CType = CString | CInt | CDouble | CBool
-data CConst = CStringVal String | CIntVal Int | CDoubleVal Double | CBoolVal Bool deriving Show
-data Var = Var {varName :: Name, varValue :: CConst} deriving Show
+data CType = CString | CInt | CDouble | CBool deriving Eq
+data CConst = CStringVal String | CIntVal Int | CDoubleVal Double | CBoolVal Bool deriving (Show, Eq)
 data ArgVar = ArgVar {argVarType :: CType, argVarName :: Name}
 
-newtype ProgramState = ProgramState {vars :: [Var]} deriving Show
-
-setValue :: String -> Var -> ProgramState -> ProgramState
-setValue name newVar pState = ProgramState { vars = setValueHelper (vars pState) } where
-  setValueHelper [] = []
-  setValueHelper (var : tl)  
-    | varName var == name = newVar : tl
-    | otherwise           = var : setValueHelper tl
+instance Num CConst where
+  (+) (CStringVal a) (CStringVal b) = CStringVal (a ++ b)
+  (+) (CIntVal a) (CIntVal b) = CIntVal (a + b)
+  (+) (CDoubleVal a) (CDoubleVal b) = CDoubleVal (a + b)
+  (+) (CBoolVal True) (CBoolVal _) = CBoolVal True
+  (+) (CBoolVal _) (CBoolVal True) = CBoolVal True
+  (+) (CBoolVal _) (CBoolVal _) = CBoolVal False
+  (+) _ _ = error "Cant perform op"
     
-addVar :: Var -> ProgramState -> ProgramState
-addVar var ps = ProgramState $ var : vars ps
+  (*) (CIntVal a) (CIntVal b) = CIntVal (a * b)
+  (*) (CDoubleVal a) (CDoubleVal b) = CDoubleVal (a * b)
+  (*) (CBoolVal True) (CBoolVal True) = CBoolVal True
+  (*) (CBoolVal _) (CBoolVal _) = CBoolVal False
+  (*) _ _ = error "Cant perform op"
+  
+  (-) (CIntVal a) (CIntVal b) = CIntVal (a - b)
+  (-) (CDoubleVal a) (CDoubleVal b) = CDoubleVal (a - b)
+  (-) (CBoolVal True) (CBoolVal True) = CBoolVal False
+  (-) (CBoolVal False) (CBoolVal False) = CBoolVal False
+  (-) (CBoolVal _) (CBoolVal _) = CBoolVal True
+  (-) _ _ = error "Cant perform op"
+    
+instance Fractional CConst where
+  (/) (CIntVal a) (CIntVal b) = CIntVal (a `div` b)
+  (/) (CDoubleVal a) (CDoubleVal b) = CDoubleVal (a / b)
+  (/) _ _ = error "Cant perform op"
+
+instance Ord CConst where
+  (<=) (CIntVal a) (CIntVal b) = a <= b
+  (<=) (CDoubleVal a) (CDoubleVal b) = a <= b
+  (<=) _ _ = error "Cant perform op"
 
 data Expr where
   ExpName :: String -> Expr
@@ -67,5 +86,3 @@ makeDiff CBool (n, Just val) = DiffBool n val
 
 makeDiffList :: CType -> [(Name, Maybe Expr)] -> Body
 makeDiffList t = fmap (makeDiff t)
-
---data Code = Return deriving Show

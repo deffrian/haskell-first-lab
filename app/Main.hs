@@ -6,22 +6,22 @@ import Control.Monad.Identity as Id
 import CPPParser as P
 import Utils
 import PrettyPrinter
+import Interpreter
 import Control.Monad.State
-
-{-program :: Func
-program = do
-  modify $ addVar $ Var "a" (CInt 1)
-  modify $ addVar $ Var "b" (CInt 2)
-  st <- get
-  let var = head $ vars st
-  return $ var
--}
+import Control.Monad.Except
 
 tmp :: [Token] -> Maybe [Func]
 tmp = P.cppParser
 
 main :: IO ()
 main = do
-  x <- readFile "test/sample7.cpp"
-  let res = tmp $ L.alexScanTokens x
-  putStrLn $ showPrettyWithTabs 0 res
+  x <- readFile "test/sample5.cpp"
+  case tmp $ L.alexScanTokens x of
+    syn@(Just res) -> do
+      let fs = fmap (\fn -> StateFunc (funcType fn) (funcName fn) (funcArgs fn) (makeAnyFunc fn)) res
+      let mainFunc = getMain res
+      res <- runExceptT $ evalStateT mainFunc (ProgramState{vars = [], funcs = fs})
+      case res of
+        (Left err) -> putStrLn $ showPretty err
+        (Right ok) -> print ok
+    Nothing -> putStrLn "Parse error"

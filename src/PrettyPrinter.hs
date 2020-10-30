@@ -105,3 +105,10 @@ instance PrettyPrinter FuncArgs where
 
 instance PrettyPrinter ArgVar where
   showPretty (ArgVar tp name) = showPretty tp ++ " " ++ name
+  
+instance PrettyPrinter CConst where
+  showPretty (CStringVal s) = show s
+  showPretty (CIntVal i) = show i
+  showPretty (CDoubleVal d) = show d
+  showPretty (CBoolVal True) = "true"
+  showPretty (CBoolVal False) = "false"

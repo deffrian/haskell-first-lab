@@ -6,4 +6,5 @@ int main() {
     cin >> curVal;
   }
   cout << "Result: " << result;
+  return 0;
 }
